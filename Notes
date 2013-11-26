@@ -1,0 +1,109 @@
+Architecture: http://meatfighter.com/gameboy/TheNintendoGameboy.pdf
+
+Opcode Map: http://imrannazar.com/Gameboy-Z80-Opcode-Map
+
+CPU: 8-bit Z80-like processor
+Clock speed: 8.4 MHz
+Work RAM: 32 KB
+Video RAM: 16 KB
+Resolution: 160x144 (20x18 tiles)
+Max sprites: 40 per screen, 10 per line
+Sprite sizes: 8x8, 8x16
+Palettes: 8x4 Background, 8x3 Object/Sprite
+Colors: 32768 (16 bit signed, no clue why this should be signed)
+Horiz sync: 9198 Hz
+Vert sync: 59.73 Hz
+Sound: 4 channels stereo
+Address bus size: 16-bit
+
+Memory map:
+0000-3FFF: 16 KB ROM Bank 00 (in cartridge)
+4000-7FFF: 16 KB ROM Bank 01-NN (in cartridge, bank number variable)
+8000-9FFF: 8 KB Video RAM, switchable bank 0/1
+A000-BFFF: 8 KB External RAM (in cartridge, bank number variable)
+C000-CFFF: 4 KB Work RAM Bank 0 (WRAM)
+D000-DFFF: 4 KB Work RAM Bank 1 (WRAM)
+E000-FDFF: Same as C000-DDFF (ECHO RAM, typically unused)
+FE00-FE9F: Sprite Attribute Table (OAM)
+FEA0-FEFF: Not Usable
+FF00-FF7F: I/O ports
+FF80-FFFE: High RAM (HRAM)
+FFFF: Interrupt Enable Register
+
+Jump vectors: Generally, these addresses are used for jump vectors:
+0000,0008,0010,0018,0020,0028,0030,0038 <-- RST commands
+0040,0048,0050,0058,0060                <-- Interrupts
+
+RST commands are 1-byte opcodes that work like CALL but the destination address is fixed
+
+0100-014F: cartridge header.  Includes: Info about MBC chip, ROM and RAM sizes, etc.
+
+FF40: LCD Control: 
+| Bit | Description                                               |
+|-----|-----------------------------------------------------------|
+|  0  | BG And Window Master Priority                             |
+|     | 0 = sprites drawn on top of BG & window                   |
+|     | 1 = use OAM and BG Map priority flags                     |
+|  1  | Display Sprite                                            |
+|  2  | Sprite Size (0 = 8x8, 1 = 8x16)                           |
+|  3  | BG Tile Map Select (0=9800-9BFF, 1=9C00-9FFF)             |
+|  4  | BG & Window Tile Data Select (0=8800-97FF, 1=8000-8FFF)   |
+|  5  | Window Display Enable                                     |
+|  6  | Window Tile Map Display Select (0=9800-9BFF, 1=9C00-9FFF) |
+|  7  | LCD Display Enable                                        |
+|-----------------------------------------------------------------|
+
+Note about bit 7: Most legit games will only unset this bit during v-blank.  If LY >= 144, you're in v-blank.  On real hardware, games that disobey this rule might break the hardware so the chances are extremely high that "official" ROMs follow this rule.
+
+Note about bit 0: if the gameboy ever goes into "monochrome mode" for compatibility with GB ROMs, this bit changes meaning.  Unsetting it causes background and window to become blank (white).  Only sprites will be displayed.  Window should be displayed for true backwards-compatibility but real hardware is buggy and disables windows.  It seems not many games from that era actually care though.
+
+FF41: STAT - LCDC status (R/W)
+| Bit | Description                                               |
+|-----|-----------------------------------------------------------|
+| 0-1 | Mode (see note)                                           |
+|  2  | Coincidence flag (0:LYC!=LY,1:LYC==LY)                    |
+|  3  | Mode 0 H-Blank Interrupt                                  |
+|  4  | Mode 1 V-Blank Interrupt                                  |
+|  5  | Mode 2 OAM Interrupt                                      |
+|  6  | LYC==LY Coincidence Interrupt                             |
+|-----------------------------------------------------------------|
+
+Bit 0-1 note:
+Modes:
+Mode 0: The LCD controller is in the H-Blank period and 
+		the CPU can access both the display RAM (8000h-9FFFh) 
+		and OAM (FE00h-FE9Fh) 
+Mode 1: The LCD contoller is in the V-Blank period (or the 
+		display is disabled) and the CPU can access both the 
+		display RAM (8000h-9FFFh) and OAM (FE00h-FE9Fh) 
+Mode 2: The LCD controller is reading from OAM memory. 
+		The CPU <cannot> access OAM memory (FE00h-FE9Fh) 
+		during this period. 
+Mode 3: The LCD controller is reading from both OAM and VRAM, 
+		The CPU <cannot> access OAM and VRAM during this period. 
+		CGB Mode: Cannot access Palette Data (FF69,FF6B) either. 
+
+The following are typical when the display is enabled: 
+ Mode 2 2_____2_____2_____2_____2_____2___________________2____ 
+ Mode 3 _33____33____33____33____33____33__________________3___ 
+ Mode 0 ___000___000___000___000___000___000________________000 
+ Mode 1 ____________________________________11111111111111_____ 
+The Mode Flag goes through the values 0, 2, and 3 at a cycle of about 109uS. 0 is present 
+about 48.6uS, 2 about 19uS, and 3 about 41uS. This is interrupted every 16.6ms by the 
+VBlank (1). The mode flag stays set at 1 for about 1.08 ms. 
+Mode 0 is present between 201-207 clks, 2 about 77-83 clks, and 3 about 169-175 clks. A 
+complete cycle through these states takes 456 clks. VBlank lasts 4560 clks. A complete 
+screen refresh occurs every 70224 clks.) 
+
+LCD Interrupts:
+
+INT 40: V-Blank Interrupt
+	Occurs at the beginning of the V-Blank period (LY=144)
+	During this period video hardware is not using video ram so it may be freely accessed. 
+	This period lasts approximately 1.1 milliseconds
+
+INT 48: LCDC Status Interrupt
+	There are various reasons for this interrupt to occur as described by the STAT register 
+	($FF40). One very popular reason is to indicate to the user when the video hardware is 
+	about to redraw a given LCD line. This can be useful for dynamically controlling the 
+	SCX/SCY registers ($FF43/$FF42) to perform special video effects. 
